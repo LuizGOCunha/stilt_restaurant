@@ -1,6 +1,16 @@
 from time import sleep
 from random import randint
 from uuid import uuid4
+import multiprocessing
+
+# function to make the creation of paralel processes easier
+def create_paralel_process(func, list_of_args=[]):
+    if list_of_args:
+        process = multiprocessing.Process(target=func, args=list_of_args)
+    else:
+        process = multiprocessing.Process(target=func)
+    return process
+
 
 class Kitchen:
     def __init__(self, dishes, counter, couriers):
@@ -13,16 +23,27 @@ class Kitchen:
 
     def cook(self, dish_index):
         # We identify the dish that the client wants
-        print(f'Kitchen receives the order to cook {self.dishes[dish_index].name}')
-        dish = self.dishes(dish_index)
+        dish = self.dishes[dish_index]
+        print(f'Kitchen receives the order to cook {dish.name}')
+        print(1)
         # We create the id for the order and then activate the Courier
         order_id = uuid4().hex
-        self.couriers.dispatch(order_id)
+        print(2)
+        # Create a paralel process to dispatch the courier
+        dispatch_process = create_paralel_process(self.couriers.dispatch_order, list_of_args=[order_id,])
+        dispatch_process.start()
+        print(3)
         # Then it's time to prepare it based on how long is the prep time
+        print(f'{dish.name} is being prepared...')
         sleep(dish.prep_time)
+        print(4)
+        # The food becomes ready
+        prepared_food = dish.prepared(id=order_id)
+        print(5)
         # This will put prepared food on the counter
-        self.counter.put_food(dish.prepared(order_id))
-        print(f'Order to cook {self.dishes[dish_index].name} with code {order_id} is Done!')
+        self.counter.put_food(prepared_food)
+        print(self.counter.counter_top)
+        print(f'Order to cook {dish.name} with code {order_id} is Done!')
 
 
 class Dishes:
@@ -32,31 +53,44 @@ class Dishes:
         self.name = name
         # ...And a prep time
         self.prep_time = prep_time
-        self.ready = False
+        self.is_ready = False
 
-    def prepared(self, order_id):
+    def prepared(self, id):
         # When the dish is prepared, we return it as food (ready to consume)
-        return Food(self.name, order_id)
+        return Food(self.name, id)
+
+    def __str__(self):
+        return self.name
 
 class Food(Dishes):
     # Food are dishes that have been prepared and are ready to consume
     def __init__(self, name, id):
-        super().__init__(name)
+        self.name = name
         self.id = id
-        self.ready = True
+        self.is_ready = True
+
+    def __repr__(self):
+        return f'{self.name}'
 
 class Clients:
     def __init__(self, kitchen):
+        self.kitchen = kitchen
+
+    def initiate_ordering(self):
+        # Lets limit the amount with counter
+        i = 0
         # Clients will be unrelenting ordering machines, to keep our system functioning
-        while True:
-            self.order_up(kitchen)
+        while i != 1:
+            order_process = create_paralel_process(self.order_up, [self.kitchen,])
+            order_process.start()
             sleep(2)
+            i += 1
 
     def order_up(self, kitchen):
         # We have to know which kitchen we are ordering in
         self.kitchen = kitchen
         # The order will be a random menu item
-        order = randint(0,len(self.kitchen.dishes))
+        order = randint(0,len(self.kitchen.dishes)-1)
         print(f'Client selects the {self.kitchen.dishes[order]}')
         # then we ask them to cook the meal
         self.kitchen.cook(order)
@@ -73,6 +107,12 @@ class Counter:
 
     def remove_food(self, food_index):
         self.counter_top.pop(food_index)
+
+    def __str__(self):
+        string = ''
+        for item in self.counter_top:
+            string += item.name + ', '
+
 
 class Courier:
     # The courier will watch the Counter, and will act as soon as there is food in the counter top
